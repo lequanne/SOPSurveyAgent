@@ -31,7 +31,7 @@ A fully client-side Retrieval-Augmented Generation (RAG) agent for Standard Oper
 | **Knowledge Base** | Wikipedia API (CORS-enabled, 7 public articles) |
 | **Chunking** | Sliding window (400 words, 80 word overlap) |
 | **Retrieval** | TF-IDF with smoothed IDF, stop-word filtering |
-| **Generation** | Claude claude-sonnet-4-20250514 via Anthropic API (browser-direct) |
+| **Generation** | Anthropic API (browser-direct) |
 | **Hosting** | GitHub Pages (single static file) |
 
 ## Deploy to GitHub Pages
