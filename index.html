@@ -1,0 +1,609 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SOP Survey Agent — RAG Architecture</title>
+<style>
+:root{
+  --navy:#01386A;--blue:#0256a8;--lblue:#dbeafe;--pale:#eff6ff;
+  --bg:#f1f5f9;--card:#fff;--text:#0f172a;--muted:#64748b;
+  --border:#e2e8f0;--ok:#059669;--warn:#d97706;--err:#dc2626;
+  --purple:#7c3aed;--cyan:#0891b2;--teal:#0d9488;
+  --r:8px;--fs:system-ui,-apple-system,sans-serif;--fm:'SF Mono',Consolas,monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--fs);background:var(--bg);color:var(--text);min-height:100vh}
+a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
+button{font-family:var(--fs);cursor:pointer;border:none;border-radius:6px;font-size:13px;transition:all .15s}
+button:disabled{opacity:.5;cursor:not-allowed}
+input,textarea{font-family:var(--fs);border:.5px solid var(--border);border-radius:6px;outline:none;transition:border-color .15s}
+input:focus,textarea:focus{border-color:var(--blue)}
+/* ── Layout ── */
+.page{max-width:1200px;margin:0 auto;padding:0 1.25rem 3rem}
+header{background:var(--navy);color:#fff;padding:1.25rem 0;margin-bottom:1.25rem}
+.hdr-inner{max-width:1200px;margin:0 auto;padding:0 1.25rem;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:.75rem}
+.hdr-title{font-size:20px;font-weight:700;letter-spacing:-.3px}
+.hdr-sub{font-size:12px;color:rgba(255,255,255,.7);margin-top:2px}
+.hdr-badge{font-size:10px;font-weight:600;padding:4px 10px;border-radius:20px;background:rgba(255,255,255,.15);border:.5px solid rgba(255,255,255,.3);white-space:nowrap}
+/* ── Grid ── */
+.main-grid{display:grid;grid-template-columns:1fr 360px;gap:1rem;align-items:start}
+@media(max-width:900px){.main-grid{grid-template-columns:1fr}}
+/* ── Cards ── */
+.card{background:var(--card);border:.5px solid var(--border);border-radius:var(--r);margin-bottom:.75rem}
+.card-hdr{display:flex;justify-content:space-between;align-items:center;padding:.75rem 1rem;border-bottom:.5px solid var(--border);cursor:pointer;user-select:none}
+.card-hdr:hover{background:#fafafa}
+.card-ttl{font-size:13px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px}
+.card-body{padding:1rem}
+.toggle-icon{font-size:11px;color:var(--muted);transition:transform .2s}
+.toggle-icon.open{transform:rotate(180deg)}
+/* ── Architecture Diagram ── */
+.diag-wrap{overflow-x:auto;padding:.5rem 0}
+.diag{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;gap:0;align-items:stretch;min-width:700px}
+.diag-col{display:flex;flex-direction:column;gap:8px;padding:0 8px}
+.diag-arrow-col{display:flex;align-items:center;justify-content:center;padding:0 4px}
+.diag-hdr{font-size:9px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;text-align:center;padding:4px 8px;border-radius:4px;margin-bottom:4px}
+.diag-hdr.src{background:#f3e8ff;color:#7c3aed}
+.diag-hdr.proc{background:#cffafe;color:#0e7490}
+.diag-hdr.gen{background:#dbeafe;color:#1d4ed8}
+.node{border-radius:6px;padding:8px 10px;font-size:11px;line-height:1.4;border:.5px solid}
+.node.src{background:#faf5ff;border-color:#c4b5fd;color:#6d28d9}
+.node.proc{background:#ecfeff;border-color:#a5f3fc;color:#0e7490}
+.node.gen{background:#eff6ff;border-color:#bfdbfe;color:#1d4ed8}
+.node.query{background:var(--navy);border-color:var(--navy);color:#fff}
+.node.llm{background:var(--navy);border-color:#01386A;color:#fff;font-weight:600}
+.node.out{background:#f0fdf4;border-color:#bbf7d0;color:#065f46}
+.node-icon{font-size:16px;margin-bottom:4px;display:block}
+.node-lbl{font-weight:600;font-size:11px}
+.node-sub{font-size:10px;opacity:.75;margin-top:2px}
+.arrow{font-size:18px;color:var(--muted)}
+.arrow-v{display:flex;flex-direction:column;align-items:center;gap:2px;color:var(--muted);font-size:10px}
+/* ── KB status ── */
+.kb-doc{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:.5px solid var(--border)}
+.kb-doc:last-child{border-bottom:none}
+.kb-icon{font-size:16px;flex-shrink:0}
+.kb-name{font-size:12px;font-weight:500;flex:1}
+.kb-stat{font-size:10px;padding:2px 7px;border-radius:10px;white-space:nowrap}
+.kb-stat.loading{background:#fef3c7;color:#92400e}
+.kb-stat.done{background:#d1fae5;color:#065f46}
+.kb-stat.err{background:#fee2e2;color:#991b1b}
+.kb-total{font-size:11px;color:var(--muted);margin-top:.5rem;padding-top:.5rem;border-top:.5px solid var(--border)}
+/* ── Chat ── */
+.chat-card{display:flex;flex-direction:column;height:calc(100vh - 116px);min-height:560px;position:sticky;top:1rem}
+.sidebar{position:sticky;top:1rem;max-height:calc(100vh - 116px);overflow-y:auto;scrollbar-width:thin}
+@media(max-width:900px){.chat-card,.sidebar{position:static;height:auto;max-height:none}}
+.chat-msgs{flex:1;overflow-y:auto;padding:1rem;display:flex;flex-direction:column;gap:.875rem}
+.msg{display:flex;gap:10px;align-items:flex-start}
+.msg.user{flex-direction:row-reverse}
+.msg-avatar{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;margin-top:2px}
+.msg-avatar.agent{background:var(--navy);color:#fff}
+.msg-avatar.user{background:var(--lblue);color:var(--navy)}
+.msg-content{max-width:78%}
+.msg-bubble{padding:.75rem 1rem;border-radius:12px;font-size:13px;line-height:1.6}
+.msg.agent .msg-bubble{background:var(--card);border:.5px solid var(--border);border-top-left-radius:3px}
+.msg.user .msg-bubble{background:var(--navy);color:#fff;border-top-right-radius:3px}
+.msg-time{font-size:10px;color:var(--muted);margin-top:4px;padding:0 4px}
+.msg.user .msg-time{text-align:right}
+/* ── Sources panel ── */
+.sources{margin-top:.5rem;display:flex;flex-direction:column;gap:4px}
+.src-chip{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:6px;background:var(--pale);border:.5px solid var(--lblue);font-size:11px;color:var(--blue)}
+.src-chip .sc-icon{font-size:13px}
+.src-chip .sc-score{font-family:var(--fm);font-size:10px;color:var(--muted);margin-left:auto}
+/* ── Retrieved chunks panel ── */
+.chunks-panel{margin-top:.5rem;background:#fafafa;border:.5px solid var(--border);border-radius:6px;overflow:hidden}
+.chunks-hdr{font-size:10px;font-weight:600;color:var(--muted);padding:5px 8px;background:#f1f5f9;border-bottom:.5px solid var(--border);letter-spacing:.05em;text-transform:uppercase;cursor:pointer;display:flex;justify-content:space-between}
+.chunk-item{padding:6px 8px;border-bottom:.5px solid var(--border);font-size:11px;line-height:1.4;color:var(--muted)}
+.chunk-item:last-child{border-bottom:none}
+.chunk-src{font-weight:600;color:var(--purple);font-size:10px;margin-bottom:2px}
+/* ── Input bar ── */
+.input-bar{padding:.75rem;border-top:.5px solid var(--border);background:#fafafa;border-radius:0 0 var(--r) var(--r)}
+.input-row{display:flex;gap:.5rem}
+.input-row textarea{flex:1;padding:.625rem .75rem;font-size:13px;background:var(--card);resize:none;height:44px;min-height:44px;max-height:160px;border-radius:6px;line-height:1.5;overflow-y:auto}
+.send-btn{padding:0 1.25rem;background:var(--navy);color:#fff;border-radius:6px;font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.send-btn:hover:not(:disabled){background:var(--blue)}
+.api-row{display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;flex-wrap:wrap}
+.api-lbl{font-size:11px;color:var(--muted);white-space:nowrap}
+.api-input{flex:1;padding:5px 8px;font-size:11px;font-family:var(--fm);min-width:160px}
+/* ── Pipeline visualizer ── */
+.pipeline-viz{display:flex;align-items:center;gap:6px;margin-top:.375rem;padding:.5rem .75rem;background:var(--pale);border:.5px solid var(--lblue);border-radius:6px;flex-wrap:wrap}
+.pv-step{display:flex;align-items:center;gap:4px;font-size:10px;color:var(--muted)}
+.pv-step.active{color:var(--navy);font-weight:600}
+.pv-step.done{color:var(--ok)}
+.pv-dot{width:7px;height:7px;border-radius:50%;background:currentColor;flex-shrink:0}
+.pv-arr{font-size:10px;color:var(--border)}
+/* ── Empty state ── */
+.empty{text-align:center;padding:2.5rem 1rem;color:var(--muted)}
+.empty-icon{font-size:40px;margin-bottom:.75rem}
+.empty-title{font-size:14px;font-weight:600;color:var(--text);margin-bottom:.375rem}
+.empty-sub{font-size:12px;line-height:1.6}
+.suggest-chips{display:flex;flex-wrap:wrap;gap:.5rem;justify-content:center;margin-top:.875rem}
+.suggest{font-size:11px;padding:5px 12px;border-radius:20px;border:.5px solid var(--border);background:var(--card);color:var(--text);cursor:pointer}
+.suggest:hover{background:var(--pale);border-color:var(--blue);color:var(--blue)}
+/* ── Misc ── */
+.badge{font-size:10px;font-weight:600;padding:2px 7px;border-radius:10px}
+.badge.purple{background:#f3e8ff;color:#7c3aed}
+.badge.cyan{background:#cffafe;color:#0e7490}
+.badge.navy{background:var(--lblue);color:var(--navy)}
+.progress-bar{height:3px;background:var(--lblue);border-radius:2px;overflow:hidden;margin-top:.5rem}
+.progress-fill{height:100%;background:var(--navy);border-radius:2px;transition:width .4s}
+strong{font-weight:600}
+pre{font-family:var(--fm);font-size:11px;background:#f8fafc;padding:.5rem;border-radius:4px;overflow-x:auto;margin:.25rem 0}
+code{font-family:var(--fm);font-size:11px;background:#f1f5f9;padding:1px 4px;border-radius:3px}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="hdr-inner">
+    <div>
+      <div class="hdr-title">📋 SOP Survey Agent</div>
+      <div class="hdr-sub">Retrieval-Augmented Generation · Wikipedia Knowledge Base · Claude claude-sonnet-4-20250514</div>
+    </div>
+    <span class="hdr-badge">RAG Prototype · GitHub Pages Ready</span>
+  </div>
+</header>
+
+<div class="page">
+<div class="main-grid">
+
+<!-- LEFT: Chat (primary) -->
+<div class="card chat-card">
+  <div class="card-hdr" style="cursor:default;background:var(--navy);border-radius:var(--r) var(--r) 0 0">
+    <div class="card-ttl" style="color:#fff">💬 SOP Survey Agent</div>
+    <span class="badge" id="status-badge" style="background:rgba(255,255,255,.15);color:#fff;border:.5px solid rgba(255,255,255,.3)">⏳ Loading KB…</span>
+  </div>
+
+  <!-- API key bar -->
+  <div style="padding:.625rem 1rem;border-bottom:.5px solid var(--border);background:#fafafa;display:flex;align-items:center;gap:.625rem;flex-wrap:wrap">
+    <span style="font-size:11px;color:var(--muted);white-space:nowrap;flex-shrink:0">🔑 API key</span>
+    <input type="password" id="apiKey" placeholder="sk-ant-api03-…" style="flex:1;min-width:180px;padding:5px 9px;font-size:12px;font-family:var(--fm);background:var(--card);border:.5px solid var(--border);border-radius:6px;outline:none">
+    <span style="font-size:10px;color:var(--muted)">Never stored · sent only to Anthropic</span>
+  </div>
+
+  <!-- Messages -->
+  <div class="chat-msgs" id="chatMsgs">
+    <div class="empty" id="emptyState">
+      <div class="empty-icon">📋</div>
+      <div class="empty-title">SOP Survey Agent Ready</div>
+      <div class="empty-sub">Ask anything about Standard Operating Procedures, survey methodology, quality management, or research ethics. The agent retrieves relevant passages from 7 Wikipedia articles before generating each answer.</div>
+      <div class="suggest-chips">
+        <button class="suggest" onclick="suggest('What are the key components of a standard operating procedure?')">Key SOP components</button>
+        <button class="suggest" onclick="suggest('How do I design a survey for quality management?')">Survey design for QMS</button>
+        <button class="suggest" onclick="suggest('What does ISO 9001 say about documentation?')">ISO 9001 documentation</button>
+        <button class="suggest" onclick="suggest('What are research ethics principles for surveys?')">Research ethics principles</button>
+        <button class="suggest" onclick="suggest('How should informed consent be obtained in surveys?')">Informed consent</button>
+        <button class="suggest" onclick="suggest('What sampling methods are used in survey research?')">Sampling methods</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Input -->
+  <div class="input-bar">
+    <div class="input-row">
+      <textarea id="queryInput" placeholder="Ask about SOPs, survey methodology, quality management, research ethics… (Enter to send, Shift+Enter for new line)" oninput="autoResize(this)" onkeydown="handleKey(event)"></textarea>
+      <button class="send-btn" id="sendBtn" onclick="sendQuery()">Send ↗</button>
+    </div>
+    <div style="font-size:10px;color:var(--muted);margin-top:4px;padding:0 2px">Enter ↵ to send · Shift+Enter for new line · answers cite source chunks</div>
+  </div>
+</div>
+
+<!-- RIGHT: Sidebar (reversed: Stats → KB → Diagram) -->
+<div class="sidebar">
+
+  <!-- 1. RAG Stats (top — most live) -->
+  <div class="card" style="margin-bottom:.75rem">
+    <div class="card-hdr" style="cursor:default;padding:.625rem 1rem">
+      <div class="card-ttl" style="font-size:12px">⚡ Index Status</div>
+    </div>
+    <div class="card-body" style="padding:.75rem 1rem">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:.5rem;text-align:center">
+        <div><div style="font-size:24px;font-weight:700;color:var(--navy)" id="stat-docs">0</div><div style="font-size:10px;color:var(--muted)">Documents</div></div>
+        <div><div style="font-size:24px;font-weight:700;color:var(--purple)" id="stat-chunks">0</div><div style="font-size:10px;color:var(--muted)">Chunks</div></div>
+        <div><div style="font-size:24px;font-weight:700;color:var(--teal)" id="stat-terms">0</div><div style="font-size:10px;color:var(--muted)">Terms</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. Knowledge Base Status -->
+  <div class="card" style="margin-bottom:.75rem">
+    <div class="card-hdr" onclick="toggleCard('kb')">
+      <div class="card-ttl">📚 Knowledge Base</div>
+      <span class="toggle-icon open" id="kb-icon">▼</span>
+    </div>
+    <div class="card-body" id="kb-body">
+      <div id="kb-docs"></div>
+      <div class="progress-bar" style="margin-top:.5rem"><div class="progress-fill" id="kb-progress" style="width:0%"></div></div>
+      <div class="kb-total" id="kb-total">Loading documents…</div>
+      <button onclick="reloadKB()" style="margin-top:.625rem;padding:6px 12px;background:var(--pale);border:.5px solid var(--border);color:var(--text);font-size:11px;width:100%;border-radius:6px">↺ Reload Knowledge Base</button>
+    </div>
+  </div>
+
+  <!-- 3. Architecture Diagram (bottom — reference) -->
+  <div class="card">
+    <div class="card-hdr" onclick="toggleCard('diag')">
+      <div class="card-ttl">🏗️ IA — RAG Architecture</div>
+      <span class="toggle-icon open" id="diag-icon">▼</span>
+    </div>
+    <div class="card-body" id="diag-body">
+      <div class="diag-wrap">
+        <div class="diag">
+          <div class="diag-col">
+            <div class="diag-hdr src">📚 Knowledge Base</div>
+            <div class="node src"><span class="node-icon">📄</span><div class="node-lbl">Wikipedia Sources</div><div class="node-sub">7 public articles<br>SOP · Survey · ISO…</div></div>
+            <div class="node src"><span class="node-icon">🌐</span><div class="node-lbl">CORS-enabled API</div><div class="node-sub">w/api.php · JSON</div></div>
+          </div>
+          <div class="diag-arrow-col"><div class="arrow-v">▶<div>fetch</div></div></div>
+          <div class="diag-col">
+            <div class="diag-hdr proc">⚙️ Processing</div>
+            <div class="node proc"><span class="node-icon">✂️</span><div class="node-lbl">Text Chunker</div><div class="node-sub">400w / 80w overlap</div></div>
+            <div class="node proc"><span class="node-icon">📊</span><div class="node-lbl">TF-IDF Indexer</div><div class="node-sub">Smoothed IDF weights</div></div>
+            <div class="node proc"><span class="node-icon">🔍</span><div class="node-lbl">Retriever</div><div class="node-sub">Top-K scoring (k=5)</div></div>
+          </div>
+          <div class="diag-arrow-col"><div class="arrow-v">▶<div>retrieve</div></div></div>
+          <div class="diag-col">
+            <div class="diag-hdr gen">🤖 Generation</div>
+            <div class="node query"><span class="node-icon">💬</span><div class="node-lbl">User Query</div><div class="node-sub">SOP question</div></div>
+            <div class="node llm"><span class="node-icon">⚡</span><div class="node-lbl">Claude claude-sonnet-4-20250514</div><div class="node-sub">Query + chunks<br>as context</div></div>
+            <div class="node out"><span class="node-icon">✅</span><div class="node-lbl">SOP Answer</div><div class="node-sub">+ citations [1][2]…</div></div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:.375rem;flex-wrap:wrap;margin-top:.75rem;padding-top:.75rem;border-top:.5px solid var(--border)">
+        <span class="badge purple">📚 Retrieval</span>
+        <span class="badge cyan">⚙️ Indexing</span>
+        <span class="badge navy">🤖 Generation</span>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /sidebar -->
+
+</div><!-- /main-grid -->
+</div><!-- /page -->
+
+<script>
+// ── Knowledge Base Sources ─────────────────────────────────────────────────
+const SOURCES = [
+  { id:'sop',   title:'Standard Operating Procedure', wiki:'Standard_operating_procedure', icon:'📋' },
+  { id:'surv',  title:'Survey Methodology',           wiki:'Survey_methodology',           icon:'📊' },
+  { id:'iso',   title:'ISO 9001',                     wiki:'ISO_9001',                     icon:'✅' },
+  { id:'qms',   title:'Quality Management System',    wiki:'Quality_management_system',    icon:'🏭' },
+  { id:'eth',   title:'Research Ethics',              wiki:'Research_ethics',              icon:'⚖️' },
+  { id:'data',  title:'Data Collection',              wiki:'Data_collection',              icon:'📈' },
+  { id:'cons',  title:'Informed Consent',             wiki:'Informed_consent',             icon:'📝' },
+];
+
+// ── State ──────────────────────────────────────────────────────────────────
+let allChunks = [];
+let idfIndex  = {};
+let loadedDocs = 0;
+let kbReady   = false;
+
+// ── Fetch Wikipedia article ────────────────────────────────────────────────
+async function fetchWikiArticle(src) {
+  const url = `https://en.wikipedia.org/w/api.php?action=query&titles=${src.wiki}&prop=extracts&format=json&origin=*&explaintext=1`;
+  const res  = await fetch(url);
+  const data = await res.json();
+  const pages = data.query.pages;
+  const page  = Object.values(pages)[0];
+  if (!page.extract) throw new Error('No extract');
+  // Clean text
+  const text = page.extract.replace(/==+[^=]+==+/g,' ').replace(/\n{2,}/g,' ').replace(/\s+/g,' ').trim();
+  return { ...src, text, url: `https://en.wikipedia.org/wiki/${src.wiki}` };
+}
+
+// ── Chunker (sliding window) ───────────────────────────────────────────────
+function chunkText(doc, size=400, overlap=80) {
+  const words  = doc.text.split(/\s+/).filter(Boolean);
+  const chunks = [];
+  let i = 0;
+  while (i < words.length) {
+    const slice = words.slice(i, i + size);
+    if (slice.length > 30) { // skip tiny trailing chunks
+      chunks.push({
+        text:   slice.join(' '),
+        source: doc.title,
+        url:    doc.url,
+        icon:   doc.icon,
+        id:     `${doc.id}-${chunks.length}`,
+      });
+    }
+    i += size - overlap;
+  }
+  return chunks;
+}
+
+// ── TF-IDF ─────────────────────────────────────────────────────────────────
+const STOP = new Set('the a an and or but in on at to for of is are was were be been have has had do does did will would could should may might this that these those with from by about as into through during before after above below between each no not its own same so than too very just also back any both few more most other some such only under while although i we you he she it they what which who whom whose when where why how all there their'.split(' '));
+
+function tokenize(text) {
+  return (text.toLowerCase().match(/\b[a-z][a-z0-9]{2,}\b/g) || []).filter(t => !STOP.has(t));
+}
+
+function buildTFIDF(chunks) {
+  const N  = chunks.length;
+  const df = {};
+  chunks.forEach(chunk => {
+    new Set(tokenize(chunk.text)).forEach(t => df[t] = (df[t]||0)+1);
+  });
+  const idf = {};
+  Object.keys(df).forEach(t => idf[t] = Math.log((N+1)/(df[t]+1))+1);
+  return idf;
+}
+
+function scoreChunk(queryTokens, chunk) {
+  const words = tokenize(chunk.text);
+  const tf = {};
+  words.forEach(w => tf[w] = (tf[w]||0)+1);
+  const total = words.length || 1;
+  return queryTokens.reduce((sum, t) => {
+    return sum + (tf[t]||0)/total * (idfIndex[t]||0);
+  }, 0);
+}
+
+function retrieve(query, k=5) {
+  const qTokens = tokenize(query);
+  return allChunks
+    .map(c => ({ ...c, score: scoreChunk(qTokens, c) }))
+    .sort((a,b) => b.score - a.score)
+    .slice(0, k)
+    .filter(c => c.score > 0);
+}
+
+// ── Load knowledge base ────────────────────────────────────────────────────
+async function loadKB() {
+  kbReady = false;
+  loadedDocs = 0;
+  allChunks = [];
+  idfIndex = {};
+  updateStatus('⏳ Loading KB…', '#fef3c7', '#92400e');
+
+  // Render skeleton rows
+  const kbEl = document.getElementById('kb-docs');
+  kbEl.innerHTML = SOURCES.map(s =>
+    `<div class="kb-doc" id="kbrow-${s.id}">
+      <span class="kb-icon">${s.icon}</span>
+      <span class="kb-name">${s.title}</span>
+      <span class="kb-stat loading" id="kbstat-${s.id}">…fetching</span>
+    </div>`
+  ).join('');
+
+  const fetchPromises = SOURCES.map(async (src) => {
+    try {
+      const doc    = await fetchWikiArticle(src);
+      const chunks = chunkText(doc);
+      allChunks.push(...chunks);
+      loadedDocs++;
+      document.getElementById(`kbstat-${src.id}`).textContent = `${chunks.length} chunks`;
+      document.getElementById(`kbstat-${src.id}`).className   = 'kb-stat done';
+      document.getElementById('kb-progress').style.width = `${Math.round(loadedDocs/SOURCES.length*100)}%`;
+      document.getElementById('stat-docs').textContent   = loadedDocs;
+      document.getElementById('stat-chunks').textContent = allChunks.length;
+    } catch(e) {
+      document.getElementById(`kbstat-${src.id}`).textContent = 'error';
+      document.getElementById(`kbstat-${src.id}`).className   = 'kb-stat err';
+    }
+  });
+
+  await Promise.all(fetchPromises);
+
+  // Build index
+  idfIndex = buildTFIDF(allChunks);
+  const termCount = Object.keys(idfIndex).length;
+  document.getElementById('stat-terms').textContent  = termCount.toLocaleString();
+  document.getElementById('kb-total').textContent    = `${allChunks.length} chunks indexed · ${termCount.toLocaleString()} unique terms`;
+  document.getElementById('kb-progress').style.width = '100%';
+
+  kbReady = true;
+  updateStatus(`✅ KB Ready · ${allChunks.length} chunks`, '#d1fae5', '#065f46');
+}
+
+function updateStatus(text, bg, color) {
+  const b = document.getElementById('status-badge');
+  b.textContent = text;
+  b.style.background = bg;
+  b.style.color = color;
+}
+
+async function reloadKB() { await loadKB(); }
+
+// ── Chat ───────────────────────────────────────────────────────────────────
+function suggest(text) {
+  document.getElementById('queryInput').value = text;
+  sendQuery();
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendQuery(); }
+}
+
+function fmtTime() {
+  return new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+}
+
+function removeEmpty() {
+  const e = document.getElementById('emptyState');
+  if (e) e.remove();
+}
+
+function appendMsg(role, html, extras='') {
+  const msgs = document.getElementById('chatMsgs');
+  const div  = document.createElement('div');
+  div.className = `msg ${role}`;
+  const avatar = role === 'user'
+    ? `<div class="msg-avatar user">👤</div>`
+    : `<div class="msg-avatar agent">📋</div>`;
+  div.innerHTML = `
+    ${avatar}
+    <div class="msg-content">
+      <div class="msg-bubble">${html}</div>
+      ${extras}
+      <div class="msg-time">${fmtTime()}</div>
+    </div>`;
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  return div;
+}
+
+function renderPipelineViz(steps) {
+  const labels = ['🔍 Tokenize','📊 TF-IDF Score','📑 Top-5 Retrieved','🤖 Augment Prompt','💬 Generate'];
+  return `<div class="pipeline-viz">
+    ${labels.map((l,i) => `
+      <div class="pv-step ${i < steps ? 'done' : i === steps ? 'active' : ''}">
+        <span class="pv-dot"></span><span>${l}</span>
+      </div>
+      ${i < labels.length-1 ? '<span class="pv-arr">›</span>' : ''}
+    `).join('')}
+  </div>`;
+}
+
+function renderSources(chunks) {
+  const seen  = new Set();
+  const items = chunks
+    .filter(c => { if (seen.has(c.source)) return false; seen.add(c.source); return true; })
+    .map(c => `
+      <a class="src-chip" href="${c.url}" target="_blank" rel="noopener">
+        <span class="sc-icon">${c.icon}</span>
+        <span>${c.source}</span>
+        <span class="sc-score">${c.score.toFixed(4)}</span>
+      </a>`).join('');
+  return `<div class="sources">${items}</div>`;
+}
+
+function renderChunks(chunks) {
+  const items = chunks.map((c,i) => `
+    <div class="chunk-item">
+      <div class="chunk-src">[${i+1}] ${c.icon} ${c.source} · score ${c.score.toFixed(4)}</div>
+      ${c.text.slice(0,180)}…
+    </div>`).join('');
+  return `<div class="chunks-panel">
+    <div class="chunks-hdr" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">
+      📑 Retrieved context chunks <span>▼</span>
+    </div>
+    <div style="display:none">${items}</div>
+  </div>`;
+}
+
+function formatAnswer(text) {
+  // Basic markdown-ish formatting
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\[(\d+)\]/g, '<sup style="color:var(--purple);font-weight:600">[$1]</sup>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n- /g, '</p><li>')
+    .replace(/^/, '<p>').replace(/$/, '</p>')
+    .replace(/<p><\/p>/g,'');
+}
+
+async function sendQuery() {
+  const queryEl = document.getElementById('queryInput');
+  const query   = queryEl.value.trim();
+  const apiKey  = document.getElementById('apiKey').value.trim();
+
+  if (!query) return;
+  if (!apiKey) { alert('Please enter your Anthropic API key.'); return; }
+
+  removeEmpty();
+  queryEl.value = '';
+  document.getElementById('sendBtn').disabled = true;
+
+  // User message
+  appendMsg('user', escapeHtml(query));
+
+  // Thinking placeholder
+  const thinkDiv = appendMsg('agent', `
+    <span style="color:var(--muted)">⏳ Searching knowledge base…</span>
+    ${renderPipelineViz(0)}
+  `);
+
+  try {
+    // Step 1: Retrieve
+    if (!kbReady) throw new Error('Knowledge base is still loading. Please wait.');
+    const chunks = retrieve(query, 5);
+
+    // Update pipeline
+    thinkDiv.querySelector('.msg-bubble').innerHTML = `
+      <span style="color:var(--muted)">🤖 Generating answer with ${chunks.length} retrieved chunks…</span>
+      ${renderPipelineViz(3)}`;
+    thinkDiv.querySelector('.chat-msgs')?.scrollIntoView?.();
+    document.getElementById('chatMsgs').scrollTop = document.getElementById('chatMsgs').scrollHeight;
+
+    // Step 2: Build context
+    const context = chunks.map((c,i) =>
+      `[${i+1}] Source: ${c.source} (Wikipedia)\n${c.text}`
+    ).join('\n\n---\n\n');
+
+    // Step 3: Generate
+    const systemPrompt = `You are an expert SOP (Standard Operating Procedure) Survey Agent.
+You help organizations create, review, and improve standard operating procedures and surveys based on international best practices.
+Use the provided knowledge base context to give accurate, structured answers.
+Always cite sources using [1], [2], [3] notation corresponding to the numbered context blocks.
+Format your response clearly with headers and bullet points when appropriate.
+If the context doesn't fully cover the question, say so transparently.`;
+
+    const userMsg = `Knowledge base context:\n\n${context}\n\n---\n\nQuestion: ${query}\n\nPlease answer using the context. Cite sources as [1], [2], etc.`;
+
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1500,
+        system: systemPrompt,
+        messages: [{ role:'user', content: userMsg }],
+      }),
+    });
+
+    if (!res.ok) {
+      const err = await res.json();
+      throw new Error(err.error?.message || `HTTP ${res.status}`);
+    }
+
+    const data   = await res.json();
+    const answer = data.content[0].text;
+
+    // Replace thinking with answer
+    thinkDiv.querySelector('.msg-bubble').innerHTML = formatAnswer(answer);
+    thinkDiv.querySelector('.msg-content').insertAdjacentHTML('beforeend',
+      renderPipelineViz(5) +
+      renderSources(chunks) +
+      renderChunks(chunks)
+    );
+
+  } catch(e) {
+    thinkDiv.querySelector('.msg-bubble').innerHTML =
+      `<span style="color:var(--err)">⚠️ ${escapeHtml(e.message)}</span>`;
+  }
+
+  document.getElementById('sendBtn').disabled = false;
+  document.getElementById('chatMsgs').scrollTop = document.getElementById('chatMsgs').scrollHeight;
+}
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 160) + 'px';
+}
+
+function toggleCard(id) {
+  const body = document.getElementById(`${id}-body`);
+  const icon = document.getElementById(`${id}-icon`);
+  const open = body.style.display !== 'none';
+  body.style.display = open ? 'none' : 'block';
+  icon.className = `toggle-icon ${open ? '' : 'open'}`;
+}
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+loadKB();
+</script>
+</body>
+</html>
