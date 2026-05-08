@@ -77,7 +77,3 @@ A fully client-side Retrieval-Augmented Generation (RAG) agent for Standard Oper
 | Research Ethics | [wikipedia.org/wiki/Research_ethics](https://en.wikipedia.org/wiki/Research_ethics) |
 | Data Collection | [wikipedia.org/wiki/Data_collection](https://en.wikipedia.org/wiki/Data_collection) |
 | Informed Consent | [wikipedia.org/wiki/Informed_consent](https://en.wikipedia.org/wiki/Informed_consent) |
-
----
-
-*Built with Claude · RAG prototype · Single-file deployment*
