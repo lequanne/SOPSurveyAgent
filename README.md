@@ -34,23 +34,6 @@ A fully client-side Retrieval-Augmented Generation (RAG) agent for Standard Oper
 | **Generation** | Anthropic API (browser-direct) |
 | **Hosting** | GitHub Pages (single static file) |
 
-## Deploy to GitHub Pages
-
-### Option A — Web UI
-1. Go to [github.com/new](https://github.com/new) → create a **public** repo (e.g. `sop-agent`)
-2. Click **Add file → Upload files** → drag `index.html`
-3. **Settings → Pages → Source: main → / (root) → Save**
-4. Live at `https://YOUR-USERNAME.github.io/sop-agent/`
-
-### Option B — CLI
-```bash
-git init sop-agent && cd sop-agent
-cp /path/to/index.html .
-git add index.html && git commit -m "Deploy SOP RAG Agent"
-gh repo create sop-agent --public --push --source .
-```
-Then enable Pages in Settings.
-
 ## Using the AI Analysis
 
 1. Get an API key at [console.anthropic.com](https://console.anthropic.com)
